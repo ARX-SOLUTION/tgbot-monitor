@@ -96,10 +96,13 @@ export const knownChats = sqliteTable('known_chats', {
   firstName: text('first_name'),
   lastName: text('last_name'),
   lastMessageAt: integer('last_message_at'),
+  lastMessageId: integer('last_message_id'),
   lastUpdateId: integer('last_update_id'),
   canSend: integer('can_send', { mode: 'boolean' }).notNull().default(true),
   isBlocked: integer('is_blocked', { mode: 'boolean' }).notNull().default(false),
   tags: text('tags'),
+  permissionsJson: text('permissions_json'),
+  permissionsCheckedAt: integer('permissions_checked_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

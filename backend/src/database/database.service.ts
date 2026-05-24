@@ -142,10 +142,13 @@ export class DatabaseService implements OnModuleDestroy {
         first_name TEXT,
         last_name TEXT,
         last_message_at INTEGER,
+        last_message_id INTEGER,
         last_update_id INTEGER,
         can_send INTEGER NOT NULL DEFAULT 1,
         is_blocked INTEGER NOT NULL DEFAULT 0,
         tags TEXT,
+        permissions_json TEXT,
+        permissions_checked_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -246,6 +249,18 @@ export class DatabaseService implements OnModuleDestroy {
       CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs(status);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
     `);
+
+    const knownChatColumns = this.sqlite.prepare("PRAGMA table_info('known_chats')").all().map((row: any) => row.name);
+    if (!knownChatColumns.includes('last_message_id')) {
+      this.sqlite.exec('ALTER TABLE known_chats ADD COLUMN last_message_id INTEGER;');
+    }
+    if (!knownChatColumns.includes('permissions_json')) {
+      this.sqlite.exec('ALTER TABLE known_chats ADD COLUMN permissions_json TEXT;');
+    }
+    if (!knownChatColumns.includes('permissions_checked_at')) {
+      this.sqlite.exec('ALTER TABLE known_chats ADD COLUMN permissions_checked_at INTEGER;');
+    }
+
     this.logger.log('Migrations complete');
   }
 

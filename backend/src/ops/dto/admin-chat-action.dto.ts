@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
 
 const ALLOWED_ADMIN_ACTIONS = [
   'getChat',
@@ -32,4 +32,13 @@ export class AdminChatActionDto {
   @IsOptional()
   @IsObject()
   payload?: Record<string, any>;
+
+  @IsOptional()
+  @IsBoolean()
+  confirm?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  reason?: string;
 }
