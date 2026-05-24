@@ -1,23 +1,23 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, Bot, KnownChat, BroadcastJob, AuditLog, SendMessagePayload, BroadcastPayload, AdminActionPayload } from '@/lib/api';
-import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { AdminActionPayload, api, Bot, BroadcastPayload, SendMessagePayload } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Search, Send, Reply, Radio, MessageSquare, Users, Shield, List } from 'lucide-react';
+import { MessageSquare, Radio, Reply, Send, Shield, Users } from 'lucide-react';
+import { useState } from 'react';
 
 const PAGE_SIZE = 50;
 
 const CHAT_TYPES = ['private', 'group', 'supergroup', 'channel'];
-const MESSAGE_TYPES = ['text', 'photo', 'video', 'animation', 'audio', 'voice', 'document'];
+const MESSAGE_TYPES = ['text', 'photo', 'video', 'animation', 'audio', 'voice', 'document', 'sticker'];
 const ADMIN_ACTIONS = [
   'getChat', 'getChatAdministrators', 'banChatMember', 'unbanChatMember',
   'restrictChatMember', 'promoteChatMember', 'setChatTitle', 'setChatDescription',

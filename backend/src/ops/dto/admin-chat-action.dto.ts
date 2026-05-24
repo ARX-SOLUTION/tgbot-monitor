@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsObject, IsIn } from 'class-validator';
+import { IsIn, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
 
 const ALLOWED_ADMIN_ACTIONS = [
   'getChat',

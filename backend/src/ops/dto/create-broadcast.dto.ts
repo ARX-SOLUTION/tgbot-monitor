@@ -8,7 +8,7 @@ export class CreateBroadcastDto {
   @IsString()
   title: string;
 
-  @IsIn(['text', 'photo', 'video', 'animation', 'audio', 'voice', 'document'])
+  @IsIn(['text', 'photo', 'video', 'animation', 'audio', 'voice', 'document', 'sticker'])
   messageType: string;
 
   @IsOptional()

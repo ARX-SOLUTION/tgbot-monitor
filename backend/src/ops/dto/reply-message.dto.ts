@@ -10,7 +10,7 @@ export class ReplyMessageDto {
   @IsNumber()
   messageId: number;
 
-  @IsIn(['text', 'photo', 'video', 'animation', 'audio', 'voice', 'document'])
+  @IsIn(['text', 'photo', 'video', 'animation', 'audio', 'voice', 'document', 'sticker'])
   type: string;
 
   @IsOptional()

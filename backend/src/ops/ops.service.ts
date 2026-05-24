@@ -1,14 +1,14 @@
-import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
-import { knownChats, outboundMessages, broadcastJobs, broadcastTargets, auditLogs } from '../database/schema';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
-import { BotsService } from '../bots/bots.service';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { BotRegistryService } from '../bots/bot-registry.service';
+import { BotsService } from '../bots/bots.service';
+import { DatabaseService } from '../database/database.service';
+import { auditLogs, broadcastJobs, broadcastTargets, knownChats, outboundMessages } from '../database/schema';
 import { LogsService } from '../logs/logs.service';
-import { SendMessageDto } from './dto/send-message.dto';
-import { ReplyMessageDto } from './dto/reply-message.dto';
-import { CreateBroadcastDto } from './dto/create-broadcast.dto';
 import { AdminChatActionDto } from './dto/admin-chat-action.dto';
+import { CreateBroadcastDto } from './dto/create-broadcast.dto';
+import { ReplyMessageDto } from './dto/reply-message.dto';
+import { SendMessageDto } from './dto/send-message.dto';
 
 @Injectable()
 export class OpsService {
@@ -50,8 +50,20 @@ export class OpsService {
 
   async refreshChat(chatId: number) {
     const chat = await this.getChat(chatId);
-    this.db.update(knownChats).set({ updatedAt: Date.now() }).where(eq(knownChats.id, chatId)).run();
-    return chat;
+    const telegraf = this.registry.getTelegram(chat.botId);
+    this.registry.assertBotRunning(chat.botId);
+
+    const update: any = await telegraf.telegram.getChat(chat.chatId);
+    this.db.update(knownChats).set({
+      title: update.title ?? chat.title,
+      username: update.username ?? chat.username,
+      firstName: update.first_name ?? chat.firstName,
+      lastName: update.last_name ?? chat.lastName,
+      chatType: update.type ?? chat.chatType,
+      updatedAt: Date.now(),
+    }).where(eq(knownChats.id, chatId)).run();
+
+    return this.getChat(chatId);
   }
 
   // --- Messaging ---
@@ -125,6 +137,14 @@ export class OpsService {
             caption: dto.caption,
             parse_mode: parseMode as any,
             ...replyOptions,
+          });
+          break;
+        case 'sticker':
+          if (!dto.mediaFileId) {
+            throw new BadRequestException('Sticker file_id is required for sticker messages');
+          }
+          result = await telegraf.telegram.sendSticker(chatId, dto.mediaFileId, {
+            reply_parameters: dto.replyToMessageId ? { message_id: dto.replyToMessageId } : undefined,
           });
           break;
         default:
@@ -239,6 +259,14 @@ export class OpsService {
             caption: dto.caption,
             parse_mode: parseMode as any,
             ...replyOptions,
+          });
+          break;
+        case 'sticker':
+          if (!dto.mediaFileId) {
+            throw new BadRequestException('Sticker file_id is required for sticker replies');
+          }
+          result = await telegraf.telegram.sendSticker(chatId, dto.mediaFileId, {
+            reply_parameters: { message_id: dto.messageId },
           });
           break;
         default:
@@ -370,6 +398,12 @@ export class OpsService {
           break;
         case 'document':
           result = await telegraf.telegram.sendDocument(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
+        case 'sticker':
+          if (!payload.mediaFileId) {
+            throw new Error('Sticker file_id is required for broadcast sticker messages');
+          }
+          result = await telegraf.telegram.sendSticker(target.chatId, payload.mediaFileId);
           break;
         }
 

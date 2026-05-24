@@ -9,6 +9,7 @@ import BotsPage from './pages/Bots';
 import BotDetailPage from './pages/BotDetail';
 import LogsPage from './pages/Logs';
 import ErrorLogsPage from './pages/ErrorLogs';
+import OperationsPage from './pages/Operations';
 import NotFound from './pages/not-found';
 
 const queryClient = new QueryClient({
@@ -35,6 +36,7 @@ export default function App() {
                 <Route path="/bots/:id" component={BotDetailPage} />
                 <Route path="/logs" component={LogsPage} />
                 <Route path="/errors" component={ErrorLogsPage} />
+                <Route path="/operations" component={OperationsPage} />
                 <Route component={NotFound} />
               </Switch>
             </main>

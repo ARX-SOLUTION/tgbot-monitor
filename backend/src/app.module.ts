@@ -7,6 +7,7 @@ import { BotsModule } from './bots/bots.module';
 import { LogsModule } from './logs/logs.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { StatsModule } from './stats/stats.module';
+import { OpsModule } from './ops/ops.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { StatsModule } from './stats/stats.module';
     LogsModule,
     AlertsModule,
     StatsModule,
+    OpsModule,
   ],
 })
 export class AppModule {}
