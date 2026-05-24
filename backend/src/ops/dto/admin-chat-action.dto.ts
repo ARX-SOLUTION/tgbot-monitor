@@ -1,4 +1,19 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsObject } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsObject, IsIn } from 'class-validator';
+
+const ALLOWED_ADMIN_ACTIONS = [
+  'getChat',
+  'getChatAdministrators',
+  'banChatMember',
+  'unbanChatMember',
+  'restrictChatMember',
+  'promoteChatMember',
+  'setChatTitle',
+  'setChatDescription',
+  'pinChatMessage',
+  'unpinChatMessage',
+  'deleteMessage',
+  'createChatInviteLink',
+] as const;
 
 export class AdminChatActionDto {
   @IsString()
@@ -11,9 +26,10 @@ export class AdminChatActionDto {
 
   @IsString()
   @IsNotEmpty()
-  action: string; // e.g. 'ban', 'unban', 'mute', etc.
+  @IsIn(ALLOWED_ADMIN_ACTIONS)
+  action: typeof ALLOWED_ADMIN_ACTIONS[number];
 
   @IsOptional()
   @IsObject()
-  params?: Record<string, any>;
+  payload?: Record<string, any>;
 }

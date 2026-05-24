@@ -8,7 +8,7 @@ import { LogsService } from '../logs/logs.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ReplyMessageDto } from './dto/reply-message.dto';
 import { CreateBroadcastDto } from './dto/create-broadcast.dto';
-import { AdminActionDto } from './dto/admin-action.dto';
+import { AdminChatActionDto } from './dto/admin-chat-action.dto';
 
 @Injectable()
 export class OpsService {
@@ -55,60 +55,77 @@ export class OpsService {
   }
 
   // --- Messaging ---
+  private async resolveChatType(botId: string, chatId: string | number): Promise<string> {
+    const match = this.db.select({ chatType: knownChats.chatType })
+      .from(knownChats)
+      .where(and(eq(knownChats.botId, botId), eq(knownChats.chatId, Number(chatId))))
+      .get();
+    return match?.chatType ?? 'private';
+  }
+
   async sendMessage(dto: SendMessageDto): Promise<any> {
     const telegraf = this.registry.getTelegram(dto.botId);
     this.registry.assertBotRunning(dto.botId);
 
     const chatId = isNaN(Number(dto.chatId)) ? dto.chatId : Number(dto.chatId);
     const parseMode = dto.parseMode ?? undefined;
+    const targetType = await this.resolveChatType(dto.botId, chatId);
+
+    if (dto.type === 'text' && !dto.text) {
+      throw new BadRequestException('Text is required for text messages');
+    }
+    if (dto.type !== 'text' && !dto.mediaFileId && !dto.mediaUrl) {
+      throw new BadRequestException('Media file_id or mediaUrl is required for media messages');
+    }
 
     let result: any;
     try {
+      const replyOptions = dto.replyToMessageId ? { reply_to_message_id: dto.replyToMessageId } : {};
       switch (dto.type) {
         case 'text':
-          result = await telegraf.telegram.sendMessage(chatId, dto.text!, { parse_mode: parseMode as any, reply_parameters: dto.replyToMessageId ? { message_id: dto.replyToMessageId } : undefined });
+          result = await telegraf.telegram.sendMessage(chatId, dto.text!, { parse_mode: parseMode as any, ...replyOptions });
           break;
         case 'photo':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendPhoto(chatId, dto.mediaFileId, { caption: dto.caption, parse_mode: parseMode as any, reply_parameters: dto.replyToMessageId ? { message_id: dto.replyToMessageId } : undefined });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendPhoto(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, parse_mode: parseMode as any });
-          }
+          result = await telegraf.telegram.sendPhoto(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'video':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendVideo(chatId, dto.mediaFileId, { caption: dto.caption, parse_mode: parseMode as any });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendVideo(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption });
-          }
+          result = await telegraf.telegram.sendVideo(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'animation':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendAnimation(chatId, dto.mediaFileId, { caption: dto.caption });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendAnimation(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption });
-          }
+          result = await telegraf.telegram.sendAnimation(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'audio':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendAudio(chatId, dto.mediaFileId, { caption: dto.caption });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendAudio(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption });
-          }
+          result = await telegraf.telegram.sendAudio(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'voice':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendVoice(chatId, dto.mediaFileId, { caption: dto.caption });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendVoice(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption });
-          }
+          result = await telegraf.telegram.sendVoice(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'document':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendDocument(chatId, dto.mediaFileId, { caption: dto.caption, parse_mode: parseMode as any });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendDocument(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption });
-          }
+          result = await telegraf.telegram.sendDocument(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         default:
           throw new BadRequestException(`Unsupported message type: ${dto.type}`);
@@ -117,9 +134,9 @@ export class OpsService {
       this.db.insert(outboundMessages).values({
         botId: dto.botId,
         targetChatId: String(chatId),
-        targetType: 'private',
+        targetType,
         messageType: dto.type,
-        text: dto.text ?? dto.caption ?? null,
+        text: dto.type === 'text' ? dto.text ?? null : dto.caption ?? null,
         mediaFileId: dto.mediaFileId ?? null,
         mediaUrl: dto.mediaUrl ?? null,
         caption: dto.caption ?? null,
@@ -138,9 +155,9 @@ export class OpsService {
       this.db.insert(outboundMessages).values({
         botId: dto.botId,
         targetChatId: String(chatId),
-        targetType: 'private',
+        targetType,
         messageType: dto.type,
-        text: dto.text ?? dto.caption ?? null,
+        text: dto.type === 'text' ? dto.text ?? null : dto.caption ?? null,
         mediaFileId: dto.mediaFileId ?? null,
         mediaUrl: dto.mediaUrl ?? null,
         caption: dto.caption ?? null,
@@ -166,54 +183,63 @@ export class OpsService {
 
     const chatId = isNaN(Number(dto.chatId)) ? dto.chatId : Number(dto.chatId);
     const parseMode = dto.parseMode ?? undefined;
+    const targetType = await this.resolveChatType(dto.botId, chatId);
+
+    if (dto.type === 'text' && !dto.text) {
+      throw new BadRequestException('Text is required for text replies');
+    }
+    if (dto.type !== 'text' && !dto.mediaFileId && !dto.mediaUrl) {
+      throw new BadRequestException('Media file_id or mediaUrl is required for media replies');
+    }
 
     let result: any;
     try {
+      const replyOptions = { reply_to_message_id: dto.messageId };
       switch (dto.type) {
         case 'text':
-          result = await telegraf.telegram.sendMessage(chatId, dto.text!, { parse_mode: parseMode as any, reply_parameters: { message_id: dto.messageId } });
+          result = await telegraf.telegram.sendMessage(chatId, dto.text!, { parse_mode: parseMode as any, ...replyOptions });
           break;
         case 'photo':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendPhoto(chatId, dto.mediaFileId, { caption: dto.caption, parse_mode: parseMode as any, reply_parameters: { message_id: dto.messageId } });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendPhoto(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          }
+          result = await telegraf.telegram.sendPhoto(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'video':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendVideo(chatId, dto.mediaFileId, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendVideo(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          }
+          result = await telegraf.telegram.sendVideo(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'animation':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendAnimation(chatId, dto.mediaFileId, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendAnimation(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          }
+          result = await telegraf.telegram.sendAnimation(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'audio':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendAudio(chatId, dto.mediaFileId, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendAudio(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          }
+          result = await telegraf.telegram.sendAudio(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'voice':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendVoice(chatId, dto.mediaFileId, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendVoice(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          }
+          result = await telegraf.telegram.sendVoice(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         case 'document':
-          if (dto.mediaFileId) {
-            result = await telegraf.telegram.sendDocument(chatId, dto.mediaFileId, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          } else if (dto.mediaUrl) {
-            result = await telegraf.telegram.sendDocument(chatId, { url: dto.mediaUrl } as any, { caption: dto.caption, reply_parameters: { message_id: dto.messageId } });
-          }
+          result = await telegraf.telegram.sendDocument(chatId, dto.mediaFileId ? dto.mediaFileId : { url: dto.mediaUrl } as any, {
+            caption: dto.caption,
+            parse_mode: parseMode as any,
+            ...replyOptions,
+          });
           break;
         default:
           throw new BadRequestException(`Unsupported message type: ${dto.type}`);
@@ -222,8 +248,9 @@ export class OpsService {
       this.db.insert(outboundMessages).values({
         botId: dto.botId,
         targetChatId: String(chatId),
+        targetType,
         messageType: dto.type,
-        text: dto.text ?? dto.caption ?? null,
+        text: dto.type === 'text' ? dto.text ?? null : dto.caption ?? null,
         mediaFileId: dto.mediaFileId ?? null,
         mediaUrl: dto.mediaUrl ?? null,
         caption: dto.caption ?? null,
@@ -241,8 +268,9 @@ export class OpsService {
       this.db.insert(outboundMessages).values({
         botId: dto.botId,
         targetChatId: String(chatId),
+        targetType,
         messageType: dto.type,
-        text: dto.text ?? dto.caption ?? null,
+        text: dto.type === 'text' ? dto.text ?? null : dto.caption ?? null,
         mediaFileId: dto.mediaFileId ?? null,
         mediaUrl: dto.mediaUrl ?? null,
         caption: dto.caption ?? null,
@@ -326,23 +354,23 @@ export class OpsService {
             result = await telegraf.telegram.sendMessage(target.chatId, payload.text ?? '');
             break;
           case 'photo':
-            if (payload.mediaFileId) result = await telegraf.telegram.sendPhoto(target.chatId, payload.mediaFileId, { caption: payload.caption });
-            break;
-          case 'video':
-            if (payload.mediaFileId) result = await telegraf.telegram.sendVideo(target.chatId, payload.mediaFileId, { caption: payload.caption });
-            break;
-          case 'animation':
-            if (payload.mediaFileId) result = await telegraf.telegram.sendAnimation(target.chatId, payload.mediaFileId, { caption: payload.caption });
-            break;
-          case 'audio':
-            if (payload.mediaFileId) result = await telegraf.telegram.sendAudio(target.chatId, payload.mediaFileId, { caption: payload.caption });
-            break;
-          case 'voice':
-            if (payload.mediaFileId) result = await telegraf.telegram.sendVoice(target.chatId, payload.mediaFileId, { caption: payload.caption });
-            break;
-          case 'document':
-            if (payload.mediaFileId) result = await telegraf.telegram.sendDocument(target.chatId, payload.mediaFileId, { caption: payload.caption });
-            break;
+          result = await telegraf.telegram.sendPhoto(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
+        case 'video':
+          result = await telegraf.telegram.sendVideo(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
+        case 'animation':
+          result = await telegraf.telegram.sendAnimation(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
+        case 'audio':
+          result = await telegraf.telegram.sendAudio(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
+        case 'voice':
+          result = await telegraf.telegram.sendVoice(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
+        case 'document':
+          result = await telegraf.telegram.sendDocument(target.chatId, payload.mediaFileId ? payload.mediaFileId : { url: payload.mediaUrl } as any, { caption: payload.caption });
+          break;
         }
 
         this.db.insert(broadcastTargets).values({
@@ -413,7 +441,7 @@ export class OpsService {
   }
 
   // --- Admin actions ---
-  async chatAction(dto: AdminActionDto): Promise<any> {
+  async chatAction(dto: AdminChatActionDto): Promise<any> {
     const telegraf = this.registry.getTelegram(dto.botId);
     this.registry.assertBotRunning(dto.botId);
     const chatId = isNaN(Number(dto.chatId)) ? dto.chatId : Number(dto.chatId);
