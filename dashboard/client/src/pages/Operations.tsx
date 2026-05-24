@@ -76,6 +76,13 @@ export default function OperationsPage() {
       <p className="text-xs text-muted-foreground mt-2">
         Bot can send only to chats/users it has access to. Group/channel actions require bot admin rights.
       </p>
+      <div className="text-xs text-muted-foreground">
+        <p>Direct messages work only after the user has started or interacted with the bot.</p>
+        <p>Group/channel actions require the bot to be a member and have the required admin rights.</p>
+        <p>Broadcasts skip unreachable or blocked chats and only include known reachable chats.</p>
+        <p>Media reuse is based on Telegram <code>file_id</code> or public URL references.</p>
+        <p>Dangerous admin actions require confirmation and an operator reason.</p>
+      </div>
     </div>
   );
 }

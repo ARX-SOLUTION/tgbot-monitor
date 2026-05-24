@@ -17,8 +17,9 @@ Known chats are collected from incoming Telegram updates. A bot can only message
 
 ### Important rules
 - Private messages are only possible if the user has interacted with the bot.
+- Direct messages work only after the user has started or interacted with the bot.
 - Group/channel actions require the bot to be a member and, for admin actions, to have the corresponding rights.
-- Blocked or unreachable chats are skipped during broadcasts.
+- Broadcasts skip blocked or unreachable chats and only target known reachable chats.
 
 ## Send / Reply
 
