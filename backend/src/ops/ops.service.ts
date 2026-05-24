@@ -239,9 +239,9 @@ export class OpsService {
           if (!dto.mediaFileId) {
             throw new BadRequestException('Sticker file_id is required for sticker messages');
           }
-          result = await telegraf.telegram.sendSticker(chatId, dto.mediaFileId, {
-            reply_parameters: dto.replyToMessageId ? { message_id: dto.replyToMessageId } : undefined,
-          });
+          const stickerSendOptions: any = {};
+          if (dto.replyToMessageId) stickerSendOptions.reply_to_message_id = dto.replyToMessageId;
+          result = await telegraf.telegram.sendSticker(chatId, dto.mediaFileId, stickerSendOptions);
           break;
         default:
           throw new BadRequestException(`Unsupported message type: ${dto.type}`);
@@ -361,9 +361,9 @@ export class OpsService {
           if (!dto.mediaFileId) {
             throw new BadRequestException('Sticker file_id is required for sticker replies');
           }
-          result = await telegraf.telegram.sendSticker(chatId, dto.mediaFileId, {
-            reply_parameters: { message_id: dto.messageId },
-          });
+          const stickerReplyOptions: any = {};
+          if (dto.messageId) stickerReplyOptions.reply_to_message_id = dto.messageId;
+          result = await telegraf.telegram.sendSticker(chatId, dto.mediaFileId, stickerReplyOptions);
           break;
         default:
           throw new BadRequestException(`Unsupported message type: ${dto.type}`);
