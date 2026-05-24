@@ -131,6 +131,120 @@ export class DatabaseService implements OnModuleDestroy {
 
       CREATE INDEX IF NOT EXISTS idx_hourly_stats_bot_id ON hourly_stats(bot_id);
       CREATE INDEX IF NOT EXISTS idx_hourly_stats_hour ON hourly_stats(hour DESC);
+
+      CREATE TABLE IF NOT EXISTS known_chats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        chat_id INTEGER NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT 'private',
+        title TEXT,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        last_message_at INTEGER,
+        last_update_id INTEGER,
+        can_send INTEGER NOT NULL DEFAULT 1,
+        is_blocked INTEGER NOT NULL DEFAULT 0,
+        tags TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_known_chats_bot_chat ON known_chats(bot_id, chat_id);
+      CREATE INDEX IF NOT EXISTS idx_known_chats_bot_id ON known_chats(bot_id);
+      CREATE INDEX IF NOT EXISTS idx_known_chats_chat_type ON known_chats(chat_type);
+      CREATE INDEX IF NOT EXISTS idx_known_chats_can_send ON known_chats(can_send);
+      CREATE INDEX IF NOT EXISTS idx_known_chats_is_blocked ON known_chats(is_blocked);
+
+      CREATE TABLE IF NOT EXISTS media_assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        file_type TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        file_unique_id TEXT NOT NULL,
+        file_name TEXT,
+        mime_type TEXT,
+        file_size INTEGER,
+        title TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_media_assets_bot_id ON media_assets(bot_id);
+
+      CREATE TABLE IF NOT EXISTS outbound_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        target_chat_id TEXT NOT NULL,
+        target_type TEXT NOT NULL DEFAULT 'private',
+        message_type TEXT NOT NULL DEFAULT 'text',
+        text TEXT,
+        media_file_id TEXT,
+        media_url TEXT,
+        caption TEXT,
+        reply_to_message_id INTEGER,
+        telegram_message_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error_message TEXT,
+        created_at INTEGER NOT NULL,
+        sent_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_outbound_messages_bot_id ON outbound_messages(bot_id);
+      CREATE INDEX IF NOT EXISTS idx_outbound_messages_status ON outbound_messages(status);
+      CREATE INDEX IF NOT EXISTS idx_outbound_messages_created_at ON outbound_messages(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS broadcast_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT,
+        title TEXT NOT NULL,
+        message_type TEXT NOT NULL DEFAULT 'text',
+        payload_json TEXT NOT NULL,
+        filters_json TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        total_targets INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_broadcast_jobs_status ON broadcast_jobs(status);
+      CREATE INDEX IF NOT EXISTS idx_broadcast_jobs_created_at ON broadcast_jobs(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS broadcast_targets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER NOT NULL REFERENCES broadcast_jobs(id) ON DELETE CASCADE,
+        bot_id TEXT,
+        chat_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        telegram_message_id INTEGER,
+        error_message TEXT,
+        sent_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_broadcast_targets_job_id ON broadcast_targets(job_id);
+      CREATE INDEX IF NOT EXISTS idx_broadcast_targets_status ON broadcast_targets(status);
+
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT,
+        actor TEXT,
+        action TEXT NOT NULL,
+        target_chat_id TEXT,
+        target_user_id INTEGER,
+        payload_json TEXT,
+        result_json TEXT,
+        status TEXT NOT NULL DEFAULT 'success',
+        error_message TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_bot_id ON audit_logs(bot_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs(status);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
     `);
     this.logger.log('Migrations complete');
   }

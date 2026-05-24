@@ -85,6 +85,103 @@ export const hourlyStats = sqliteTable('hourly_stats', {
   errorCount: integer('error_count').notNull().default(0),
 });
 
+// ─── Known Chats ─────────────────────────────────────────────────────────────
+export const knownChats = sqliteTable('known_chats', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  botId: text('bot_id').notNull().references(() => bots.id, { onDelete: 'cascade' }),
+  chatId: integer('chat_id').notNull(),
+  chatType: text('chat_type').notNull().default('private'),
+  title: text('title'),
+  username: text('username'),
+  firstName: text('first_name'),
+  lastName: text('last_name'),
+  lastMessageAt: integer('last_message_at'),
+  lastUpdateId: integer('last_update_id'),
+  canSend: integer('can_send', { mode: 'boolean' }).notNull().default(true),
+  isBlocked: integer('is_blocked', { mode: 'boolean' }).notNull().default(false),
+  tags: text('tags'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// ─── Media Assets ───────────────────────────────────────────────────────────
+export const mediaAssets = sqliteTable('media_assets', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  botId: text('bot_id').notNull().references(() => bots.id, { onDelete: 'cascade' }),
+  fileType: text('file_type').notNull(),
+  fileId: text('file_id').notNull(),
+  fileUniqueId: text('file_unique_id').notNull(),
+  fileName: text('file_name'),
+  mimeType: text('mime_type'),
+  fileSize: integer('file_size'),
+  title: text('title'),
+  createdAt: integer('created_at').notNull(),
+});
+
+// ─── Outbound Messages ──────────────────────────────────────────────────────
+export const outboundMessages = sqliteTable('outbound_messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  botId: text('bot_id').notNull().references(() => bots.id, { onDelete: 'cascade' }),
+  targetChatId: text('target_chat_id').notNull(),
+  targetType: text('target_type').notNull().default('private'),
+  messageType: text('message_type').notNull().default('text'),
+  text: text('text'),
+  mediaFileId: text('media_file_id'),
+  mediaUrl: text('media_url'),
+  caption: text('caption'),
+  replyToMessageId: integer('reply_to_message_id'),
+  telegramMessageId: integer('telegram_message_id'),
+  status: text('status').notNull().default('pending'),
+  errorMessage: text('error_message'),
+  createdAt: integer('created_at').notNull(),
+  sentAt: integer('sent_at'),
+});
+
+// ─── Broadcast Jobs ─────────────────────────────────────────────────────────
+export const broadcastJobs = sqliteTable('broadcast_jobs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  botId: text('bot_id'),
+  title: text('title').notNull(),
+  messageType: text('message_type').notNull().default('text'),
+  payloadJson: text('payload_json').notNull(),
+  filtersJson: text('filters_json'),
+  status: text('status').notNull().default('pending'),
+  totalTargets: integer('total_targets').notNull().default(0),
+  successCount: integer('success_count').notNull().default(0),
+  failedCount: integer('failed_count').notNull().default(0),
+  createdBy: text('created_by'),
+  createdAt: integer('created_at').notNull(),
+  startedAt: integer('started_at'),
+  finishedAt: integer('finished_at'),
+});
+
+// ─── Broadcast Targets ──────────────────────────────────────────────────────
+export const broadcastTargets = sqliteTable('broadcast_targets', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobId: integer('job_id').notNull().references(() => broadcastJobs.id, { onDelete: 'cascade' }),
+  botId: text('bot_id'),
+  chatId: integer('chat_id').notNull(),
+  status: text('status').notNull().default('pending'),
+  telegramMessageId: integer('telegram_message_id'),
+  errorMessage: text('error_message'),
+  sentAt: integer('sent_at'),
+});
+
+// ─── Audit Logs ─────────────────────────────────────────────────────────────
+export const auditLogs = sqliteTable('audit_logs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  botId: text('bot_id'),
+  actor: text('actor'),
+  action: text('action').notNull(),
+  targetChatId: text('target_chat_id'),
+  targetUserId: integer('target_user_id'),
+  payloadJson: text('payload_json'),
+  resultJson: text('result_json'),
+  status: text('status').notNull().default('success'),
+  errorMessage: text('error_message'),
+  createdAt: integer('created_at').notNull(),
+});
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 export type Bot = typeof bots.$inferSelect;
 export type InsertBot = typeof bots.$inferInsert;
@@ -93,3 +190,15 @@ export type InsertUpdateLog = typeof updateLogs.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type ErrorLog = typeof errorLogs.$inferSelect;
 export type HourlyStats = typeof hourlyStats.$inferSelect;
+export type KnownChat = typeof knownChats.$inferSelect;
+export type InsertKnownChat = typeof knownChats.$inferInsert;
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type InsertMediaAsset = typeof mediaAssets.$inferInsert;
+export type OutboundMessage = typeof outboundMessages.$inferSelect;
+export type InsertOutboundMessage = typeof outboundMessages.$inferInsert;
+export type BroadcastJob = typeof broadcastJobs.$inferSelect;
+export type InsertBroadcastJob = typeof broadcastJobs.$inferInsert;
+export type BroadcastTarget = typeof broadcastTargets.$inferSelect;
+export type InsertBroadcastTarget = typeof broadcastTargets.$inferInsert;
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;
