@@ -3,7 +3,7 @@ import { useTheme } from './ThemeProvider';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import {
-  LayoutDashboard, Bot, ScrollText, AlertTriangle, Moon, Sun, Activity,
+  LayoutDashboard, Bot, ScrollText, AlertTriangle, Moon, Sun, Activity, Send,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/bots', label: 'Bots', icon: Bot },
   { href: '/logs', label: 'Update Logs', icon: ScrollText },
   { href: '/errors', label: 'Error Logs', icon: AlertTriangle },
+  { href: '/operations', label: 'Operations', icon: Send },
 ];
 
 export default function Sidebar() {

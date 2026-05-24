@@ -3,6 +3,8 @@ dist/
 .env
 data/
 logs/
+!/backend/src/logs/
+!/backend/src/logs/**
 *.log
 .DS_Store
 *.db

@@ -1,6 +1,8 @@
 import {
   Injectable,
   Logger,
+  NotFoundException,
+  ConflictException,
   OnModuleDestroy,
   OnApplicationBootstrap,
 } from '@nestjs/common';
@@ -9,7 +11,9 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BotsService } from './bots.service';
 import { LogsService } from '../logs/logs.service';
 import { AlertsService } from '../alerts/alerts.service';
-import { Bot } from '../database/schema';
+import { DatabaseService } from '../database/database.service';
+import { Bot, knownChats } from '../database/schema';
+import { eq, and } from 'drizzle-orm';
 
 export interface BotInstance {
   bot: Telegraf;
@@ -30,6 +34,7 @@ export class BotRegistryService implements OnModuleDestroy, OnApplicationBootstr
     private readonly logsService: LogsService,
     private readonly alertsService: AlertsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dbService: DatabaseService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -94,6 +99,11 @@ export class BotRegistryService implements OnModuleDestroy, OnApplicationBootstr
         this.eventEmitter.emit('update.received', { botId: botRecord.id, update: ctx.update });
       } catch (err) {
         this.logger.error(`Log middleware error for bot ${botRecord.name}: ${err.message}`);
+      }
+      try {
+        await this.upsertKnownChat(botRecord.id, ctx.update);
+      } catch (err) {
+        this.logger.error(`Failed to upsert known chat for bot ${botRecord.name}: ${err.message}`);
       }
       await next();
     });
@@ -206,6 +216,81 @@ export class BotRegistryService implements OnModuleDestroy, OnApplicationBootstr
       };
     }
     return result;
+  }
+
+  getBotInstance(botId: string): BotInstance {
+    const instance = this.instances.get(botId);
+    if (!instance) {
+      throw new NotFoundException(`Bot ${botId} not found in registry`);
+    }
+    return instance;
+  }
+
+  getTelegram(botId: string): Telegraf {
+    return this.getBotInstance(botId).bot;
+  }
+
+  assertBotRunning(botId: string): void {
+    const instance = this.getBotInstance(botId);
+    if (!instance.isRunning) {
+      throw new ConflictException(`Bot ${instance.botRecord.name} is not running`);
+    }
+  }
+
+  private async upsertKnownChat(botId: string, update: any): Promise<void> {
+    const extractChat = (u: any) =>
+      u.message?.chat ?? u.edited_message?.chat ?? u.channel_post?.chat ??
+      u.edited_channel_post?.chat ?? u.callback_query?.message?.chat ??
+      u.my_chat_member?.chat ?? u.chat_member?.chat ?? null;
+
+    const chat = extractChat(update);
+    if (!chat || chat.id === undefined) return;
+
+    const now = Date.now();
+    const updateId = update.update_id;
+
+    const existing = this.dbService.db
+      .select()
+      .from(knownChats)
+      .where(and(eq(knownChats.botId, botId), eq(knownChats.chatId, chat.id)))
+      .get();
+
+    if (existing) {
+      this.dbService.db
+        .update(knownChats)
+        .set({
+          chatType: chat.type ?? existing.chatType,
+          title: chat.title ?? existing.title,
+          username: chat.username ?? existing.username,
+          firstName: chat.first_name ?? existing.firstName,
+          lastName: chat.last_name ?? existing.lastName,
+          lastMessageAt: now,
+          lastUpdateId: updateId,
+          updatedAt: now,
+        })
+        .where(eq(knownChats.id, existing.id))
+        .run();
+    } else {
+      this.dbService.db
+        .insert(knownChats)
+        .values({
+          botId,
+          chatId: chat.id,
+          chatType: chat.type ?? 'private',
+          title: chat.title ?? null,
+          username: chat.username ?? null,
+          firstName: chat.first_name ?? null,
+          lastName: chat.last_name ?? null,
+          lastMessageAt: now,
+          lastUpdateId: updateId,
+          canSend: true,
+          isBlocked: false,
+          tags: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
   }
 
   async onModuleDestroy() {
