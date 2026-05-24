@@ -3,7 +3,7 @@ import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { BotRegistryService } from '../bots/bot-registry.service';
 import { BotsService } from '../bots/bots.service';
 import { DatabaseService } from '../database/database.service';
-import { auditLogs, broadcastJobs, broadcastTargets, knownChats, outboundMessages } from '../database/schema';
+import { auditLogs, broadcastJobs, broadcastTargets, knownChats, mediaAssets, outboundMessages } from '../database/schema';
 import { LogsService } from '../logs/logs.service';
 import { AdminChatActionDto } from './dto/admin-chat-action.dto';
 import { CreateBroadcastDto } from './dto/create-broadcast.dto';
@@ -64,6 +64,102 @@ export class OpsService {
     }).where(eq(knownChats.id, chatId)).run();
 
     return this.getChat(chatId);
+  }
+
+  async scanChatPermissions(chatId: number) {
+    const chat = await this.getChat(chatId);
+    const telegraf = this.registry.getTelegram(chat.botId);
+    this.registry.assertBotRunning(chat.botId);
+
+    const botInfo = await telegraf.telegram.getMe();
+    const selfMember: any = await telegraf.telegram.getChatMember(chat.chatId, botInfo.id).catch(() => null);
+    const admins: any[] = chat.chatType !== 'private'
+      ? await telegraf.telegram.getChatAdministrators(chat.chatId).catch(() => [])
+      : [];
+
+    const status = selfMember?.status ?? 'unknown';
+    const isAdmin = status === 'administrator' || status === 'creator';
+    const permissions = {
+      isAdmin,
+      adminStatus: status,
+      canSendMessages: !!(status && !['left', 'kicked'].includes(status)),
+      canSendMedia: !!(status && !['left', 'kicked'].includes(status)),
+      canDeleteMessages: !!selfMember?.can_delete_messages,
+      canPinMessages: !!selfMember?.can_pin_messages,
+      canInviteUsers: !!selfMember?.can_invite_users,
+      canRestrictMembers: !!selfMember?.can_restrict_members,
+      canPromoteMembers: !!selfMember?.can_promote_members,
+      canChangeInfo: !!selfMember?.can_change_info,
+      admins: admins.map((admin) => ({ userId: admin.user?.id, status: admin.status, username: admin.user?.username ?? null })),
+    };
+
+    this.db.update(knownChats).set({
+      permissionsJson: JSON.stringify(permissions),
+      permissionsCheckedAt: Date.now(),
+      updatedAt: Date.now(),
+    }).where(eq(knownChats.id, chatId)).run();
+
+    return permissions;
+  }
+
+  async registerMedia(dto: { botId: string; fileType: string; fileId: string; fileUniqueId?: string; fileName?: string; mimeType?: string; fileSize?: number; title?: string; }) {
+    const record = {
+      botId: dto.botId,
+      fileType: dto.fileType,
+      fileId: dto.fileId,
+      fileUniqueId: dto.fileUniqueId ?? dto.fileId,
+      fileName: dto.fileName ?? null,
+      mimeType: dto.mimeType ?? null,
+      fileSize: dto.fileSize ?? null,
+      title: dto.title ?? null,
+      createdAt: Date.now(),
+    };
+    this.db.insert(mediaAssets).values(record).run();
+    return record;
+  }
+
+  async getMediaAssets(filters: { botId?: string; fileType?: string; search?: string; limit?: number; offset?: number }) {
+    const limit = filters.limit ?? 50;
+    const offset = filters.offset ?? 0;
+    const conditions: any[] = [];
+    if (filters.botId) conditions.push(eq(mediaAssets.botId, filters.botId));
+    if (filters.fileType) conditions.push(eq(mediaAssets.fileType, filters.fileType));
+    if (filters.search) {
+      conditions.push(
+        sql`(${mediaAssets.title} LIKE ${'%' + filters.search + '%'} OR ${mediaAssets.fileName} LIKE ${'%' + filters.search + '%'} OR ${mediaAssets.fileId} LIKE ${'%' + filters.search + '%'})`
+      );
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const data = this.db.select().from(mediaAssets).where(where).orderBy(desc(mediaAssets.createdAt)).limit(limit).offset(offset).all();
+    const total = this.db.select({ count: count() }).from(mediaAssets).where(where).get();
+    return { data, total: total?.count ?? 0 };
+  }
+
+  async previewBroadcastTargets(dto: { botId?: string; chatType?: string; canSend?: string; isBlocked?: string; tags?: string; search?: string }) {
+    const baseConditions: any[] = [];
+    if (dto.botId) baseConditions.push(eq(knownChats.botId, dto.botId));
+    if (dto.chatType) baseConditions.push(eq(knownChats.chatType, dto.chatType));
+    if (dto.tags) baseConditions.push(sql`${knownChats.tags} LIKE ${'%' + dto.tags + '%'}`);
+    if (dto.search) {
+      baseConditions.push(
+        sql`(${knownChats.title} LIKE ${'%' + dto.search + '%'} OR ${knownChats.username} LIKE ${'%' + dto.search + '%'} OR ${knownChats.firstName} LIKE ${'%' + dto.search + '%'} OR ${knownChats.lastName} LIKE ${'%' + dto.search + '%'})`
+      );
+    }
+    const targetConditions = [...baseConditions];
+    if (dto.canSend !== undefined) targetConditions.push(eq(knownChats.canSend, dto.canSend === 'true'));
+    if (dto.isBlocked !== undefined) targetConditions.push(eq(knownChats.isBlocked, dto.isBlocked === 'true'));
+
+    const sample = this.db.select().from(knownChats).where(targetConditions.length > 0 ? and(...targetConditions) : undefined).orderBy(desc(knownChats.lastMessageAt)).limit(10).all();
+    const total = this.db.select({ count: count() }).from(knownChats).where(targetConditions.length > 0 ? and(...targetConditions) : undefined).get();
+    const excludedBlocked = this.db.select({ count: count() }).from(knownChats).where(baseConditions.length > 0 ? and(...baseConditions, eq(knownChats.isBlocked, true)) : eq(knownChats.isBlocked, true)).get();
+    const excludedCannotSend = this.db.select({ count: count() }).from(knownChats).where(baseConditions.length > 0 ? and(...baseConditions, eq(knownChats.canSend, false)) : eq(knownChats.canSend, false)).get();
+
+    return {
+      totalTargets: total?.count ?? 0,
+      sample,
+      excludedBlocked: excludedBlocked?.count ?? 0,
+      excludedCannotSend: excludedCannotSend?.count ?? 0,
+    };
   }
 
   // --- Messaging ---
@@ -480,6 +576,25 @@ export class OpsService {
     this.registry.assertBotRunning(dto.botId);
     const chatId = isNaN(Number(dto.chatId)) ? dto.chatId : Number(dto.chatId);
 
+    const dangerousAdminActions = new Set([
+      'banChatMember',
+      'restrictChatMember',
+      'promoteChatMember',
+      'deleteMessage',
+      'setChatTitle',
+      'setChatDescription',
+      'createChatInviteLink',
+    ]);
+
+    if (dangerousAdminActions.has(dto.action)) {
+      if (!dto.confirm) {
+        throw new BadRequestException(`Action ${dto.action} must be confirmed before execution.`);
+      }
+      if (!dto.reason || dto.reason.trim().length < 8) {
+        throw new BadRequestException('A reason of at least 8 characters is required for dangerous admin actions.');
+      }
+    }
+
     try {
       let result: any;
       switch (dto.action) {
@@ -521,11 +636,11 @@ export class OpsService {
           break;
       }
 
-      this.logAudit(dto.botId, dto.action, String(chatId), dto, result, 'success');
+      this.logAudit(dto.botId, dto.action, String(chatId), { ...dto, reason: dto.reason }, result, 'success', undefined, 'operator');
       return result;
     } catch (err) {
       const msg = err?.message || String(err);
-      this.logAudit(dto.botId, dto.action, String(chatId), dto, null, 'failed', msg);
+      this.logAudit(dto.botId, dto.action, String(chatId), { ...dto, reason: dto.reason }, null, 'failed', msg, 'operator');
       throw new BadRequestException(`Admin action failed: ${msg}`);
     }
   }
@@ -556,11 +671,11 @@ export class OpsService {
     return { data, total: total?.count ?? 0 };
   }
 
-  private logAudit(botId: string, action: string, targetChatId?: string, payload?: any, result?: any, status?: string, errorMessage?: string) {
+  private logAudit(botId: string, action: string, targetChatId?: string, payload?: any, result?: any, status?: string, errorMessage?: string, actor = 'dashboard') {
     try {
       this.db.insert(auditLogs).values({
         botId,
-        actor: 'dashboard',
+        actor,
         action,
         targetChatId: targetChatId ?? null,
         payloadJson: payload ? JSON.stringify(payload) : null,

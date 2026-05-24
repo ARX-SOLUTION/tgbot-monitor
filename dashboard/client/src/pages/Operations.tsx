@@ -8,11 +8,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { AdminActionPayload, api, Bot, BroadcastPayload, SendMessagePayload } from '@/lib/api';
+import { AdminActionPayload, api, Bot, BroadcastPayload, KnownChat, MediaAsset, PermissionScanResult, SendMessagePayload } from '@/lib/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { MessageSquare, Radio, Reply, Send, Shield, Users } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const PAGE_SIZE = 50;
 
@@ -28,6 +28,9 @@ export default function OperationsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('inbox');
+  const [selectedMedia, setSelectedMedia] = useState<MediaAsset | null>(null);
+  const [selectedChat, setSelectedChat] = useState<KnownChat | null>(null);
+  const [permissionScan, setPermissionScan] = useState<PermissionScanResult | null>(null);
 
   const { data: bots } = useQuery({ queryKey: ['/api/bots'], queryFn: api.bots.list });
 
@@ -44,16 +47,20 @@ export default function OperationsPage() {
         <TabsList>
           <TabsTrigger value="inbox"><MessageSquare className="w-4 h-4 mr-1.5" />Inbox</TabsTrigger>
           <TabsTrigger value="send"><Send className="w-4 h-4 mr-1.5" />Send</TabsTrigger>
+          <TabsTrigger value="media"><Radio className="w-4 h-4 mr-1.5" />Media</TabsTrigger>
           <TabsTrigger value="broadcasts"><Radio className="w-4 h-4 mr-1.5" />Broadcasts</TabsTrigger>
           <TabsTrigger value="groups"><Users className="w-4 h-4 mr-1.5" />Groups</TabsTrigger>
           <TabsTrigger value="audit"><Shield className="w-4 h-4 mr-1.5" />Audit</TabsTrigger>
         </TabsList>
 
         <TabsContent value="inbox" className="mt-4">
-          <InboxTab bots={bots} />
+          <InboxTab bots={bots} selectedChat={selectedChat} setSelectedChat={setSelectedChat} setPermissionScan={setPermissionScan} permissionScan={permissionScan} />
         </TabsContent>
         <TabsContent value="send" className="mt-4">
-          <SendTab bots={bots} toast={toast} queryClient={queryClient} />
+          <SendTab bots={bots} toast={toast} queryClient={queryClient} selectedMedia={selectedMedia} />
+        </TabsContent>
+        <TabsContent value="media" className="mt-4">
+          <MediaLibraryTab bots={bots} selectedMedia={selectedMedia} onSelect={setSelectedMedia} toast={toast} queryClient={queryClient} />
         </TabsContent>
         <TabsContent value="broadcasts" className="mt-4">
           <BroadcastsTab bots={bots} toast={toast} queryClient={queryClient} />
@@ -73,7 +80,7 @@ export default function OperationsPage() {
   );
 }
 
-function InboxTab({ bots }: { bots?: Bot[] }) {
+function InboxTab({ bots, selectedChat, setSelectedChat, setPermissionScan, permissionScan }: { bots?: Bot[]; selectedChat: KnownChat | null; setSelectedChat: (chat: KnownChat | null) => void; setPermissionScan: (scan: PermissionScanResult | null) => void; permissionScan: PermissionScanResult | null }) {
   const [botId, setBotId] = useState('');
   const [chatType, setChatType] = useState('');
   const [search, setSearch] = useState('');
@@ -84,75 +91,148 @@ function InboxTab({ bots }: { bots?: Bot[] }) {
     refetchInterval: 15_000,
   });
 
+  const scanMutation = useMutation({
+    mutationFn: () => selectedChat ? api.ops.scanPermissions(selectedChat.id) : Promise.reject('No chat selected'),
+    onSuccess: (data) => {
+      setPermissionScan(data);
+    },
+    onError: () => {
+      setPermissionScan(null);
+    },
+  });
+
   const botMap = Object.fromEntries((bots ?? []).map((b) => [b.id, b.name]));
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Select value={botId || 'all'} onValueChange={(v) => setBotId(v === 'all' ? '' : v)}>
-            <SelectTrigger className="w-44"><SelectValue placeholder="All bots" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All bots</SelectItem>
-              {bots?.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={chatType || 'all'} onValueChange={(v) => setChatType(v === 'all' ? '' : v)}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="Chat type" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {CHAT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Input
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-48"
-          />
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                {['Bot', 'Name', 'Type', 'Chat ID', 'Last Message', 'Status'].map((h) => (
-                  <th key={h} className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">{h}</th>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Select value={botId || 'all'} onValueChange={(v) => setBotId(v === 'all' ? '' : v)}>
+              <SelectTrigger className="w-44"><SelectValue placeholder="All bots" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All bots</SelectItem>
+                {bots?.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={chatType || 'all'} onValueChange={(v) => setChatType(v === 'all' ? '' : v)}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Chat type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {CHAT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-48"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  {['Bot', 'Name', 'Type', 'Chat ID', 'Last Message', 'Status'].map((h) => (
+                    <th key={h} className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    {Array.from({ length: 6 }).map((_, j) => <td key={j} className="px-4 py-2"><Skeleton className="h-4 w-full" /></td>)}
+                  </tr>
+                )) : data?.data.map((chat) => (
+                  <tr key={chat.id}
+                    className={`border-b border-border/50 hover:bg-muted/20 transition-colors ${selectedChat?.id === chat.id ? 'bg-muted/30' : ''}`}
+                    onClick={() => { setSelectedChat(chat); setPermissionScan(null); }}
+                  >
+                    <td className="px-4 py-2 text-xs">{botMap[chat.botId] ?? chat.botId.slice(0, 8)}</td>
+                    <td className="px-4 py-2 text-xs max-w-[150px] truncate">{chat.title ?? chat.firstName ?? chat.username ?? `#${chat.chatId}`}</td>
+                    <td className="px-4 py-2"><Badge variant="outline" className="text-xs capitalize">{chat.chatType}</Badge></td>
+                    <td className="px-4 py-2 text-xs font-mono text-muted-foreground">{chat.chatId}</td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground">{chat.lastMessageAt ? format(new Date(chat.lastMessageAt), 'MM-dd HH:mm') : '—'}</td>
+                    <td className="px-4 py-2">
+                      <Badge variant={chat.isBlocked ? 'destructive' : chat.canSend ? 'default' : 'secondary'} className="text-xs">
+                        {chat.isBlocked ? 'blocked' : chat.canSend ? 'active' : 'inactive'}
+                      </Badge>
+                    </td>
+                  </tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-border/50">
-                  {Array.from({ length: 6 }).map((_, j) => <td key={j} className="px-4 py-2"><Skeleton className="h-4 w-full" /></td>)}
-                </tr>
-              )) : data?.data.map((chat) => (
-                <tr key={chat.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-2 text-xs">{botMap[chat.botId] ?? chat.botId.slice(0, 8)}</td>
-                  <td className="px-4 py-2 text-xs max-w-[150px] truncate">{chat.title ?? chat.firstName ?? chat.username ?? `#${chat.chatId}`}</td>
-                  <td className="px-4 py-2"><Badge variant="outline" className="text-xs capitalize">{chat.chatType}</Badge></td>
-                  <td className="px-4 py-2 text-xs font-mono text-muted-foreground">{chat.chatId}</td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">{chat.lastMessageAt ? format(new Date(chat.lastMessageAt), 'MM-dd HH:mm') : '—'}</td>
-                  <td className="px-4 py-2">
-                    <Badge variant={chat.isBlocked ? 'destructive' : chat.canSend ? 'default' : 'secondary'} className="text-xs">
-                      {chat.isBlocked ? 'blocked' : chat.canSend ? 'active' : 'inactive'}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {data?.data?.length === 0 && !isLoading && (
-          <div className="py-12 text-center text-sm text-muted-foreground">No known chats yet. Chats are discovered from incoming updates.</div>
-        )}
-      </CardContent>
-    </Card>
+              </tbody>
+            </table>
+          </div>
+          {data?.data?.length === 0 && !isLoading && (
+            <div className="py-12 text-center text-sm text-muted-foreground">No known chats yet. Chats are discovered from incoming updates.</div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedChat && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-base">Selected Chat</CardTitle>
+                <p className="text-sm text-muted-foreground">{selectedChat.title ?? selectedChat.username ?? `#${selectedChat.chatId}`}</p>
+              </div>
+              <Button size="sm" onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}>
+                {scanMutation.isPending ? 'Scanning…' : 'Scan permissions'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Bot</div>
+                <div className="text-sm">{botMap[selectedChat.botId] ?? selectedChat.botId}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Chat type</div>
+                <Badge variant="outline" className="text-xs capitalize">{selectedChat.chatType}</Badge>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Selected chat ID</div>
+              <div className="text-sm font-mono">{selectedChat.chatId}</div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {permissionScan ? (
+                [
+                  ['canSendMessages', 'Send'],
+                  ['canSendMedia', 'Media'],
+                  ['canDeleteMessages', 'Delete'],
+                  ['canPinMessages', 'Pin'],
+                  ['canInviteUsers', 'Invite'],
+                  ['canRestrictMembers', 'Restrict'],
+                  ['canPromoteMembers', 'Promote'],
+                  ['canChangeInfo', 'Change info'],
+                ].map(([key, label]) => (
+                  <Badge key={key} variant={(permissionScan as any)[key] ? 'default' : 'secondary'} className="text-xs capitalize">
+                    {label}
+                  </Badge>
+                ))
+              ) : (
+                <div className="col-span-full text-sm text-muted-foreground">Scan permissions to see the bot&apos;s current admin capabilities in this chat.</div>
+              )}
+            </div>
+            {permissionScan && !permissionScan.isAdmin && (
+              <div className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+                Telegram permissions depend on bot admin rights in this chat. Some actions may still fail if the bot is not an administrator.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
-function SendTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; queryClient: any }) {
+function SendTab({ bots, toast, queryClient, selectedMedia }: { bots?: Bot[]; toast: any; queryClient: any; selectedMedia: MediaAsset | null }) {
   const [botId, setBotId] = useState('');
   const [chatId, setChatId] = useState('');
   const [msgType, setMsgType] = useState('text');
@@ -162,6 +242,13 @@ function SendTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; query
   const [mediaUrl, setMediaUrl] = useState('');
   const [replyToId, setReplyToId] = useState('');
   const [mode, setMode] = useState<'send' | 'reply'>('send');
+
+  useEffect(() => {
+    if (selectedMedia) {
+      setMsgType(selectedMedia.fileType);
+      setMediaFileId(selectedMedia.fileId);
+    }
+  }, [selectedMedia]);
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -265,6 +352,157 @@ function SendTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; query
   );
 }
 
+function MediaLibraryTab({ bots, selectedMedia, onSelect, toast, queryClient }: { bots?: Bot[]; selectedMedia: MediaAsset | null; onSelect: (media: MediaAsset) => void; toast: any; queryClient: any }) {
+  const [botId, setBotId] = useState('');
+  const [fileType, setFileType] = useState('photo');
+  const [fileId, setFileId] = useState('');
+  const [fileUniqueId, setFileUniqueId] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [mimeType, setMimeType] = useState('');
+  const [fileSize, setFileSize] = useState('');
+  const [title, setTitle] = useState('');
+  const [search, setSearch] = useState('');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['/api/ops/media', botId, fileType, search],
+    queryFn: () => api.ops.media({ botId: botId || undefined, fileType: fileType || undefined, search: search || undefined, limit: 50 }),
+    keepPreviousData: true,
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: () => api.ops.registerMedia({
+      botId,
+      fileType,
+      fileId,
+      fileUniqueId: fileUniqueId || undefined,
+      fileName: fileName || undefined,
+      mimeType: mimeType || undefined,
+      fileSize: fileSize ? Number(fileSize) : undefined,
+      title: title || undefined,
+    }),
+    onSuccess: () => {
+      toast({ title: 'Media registered', description: 'File ID saved for reuse' });
+      setFileId('');
+      setFileUniqueId('');
+      setFileName('');
+      setMimeType('');
+      setFileSize('');
+      setTitle('');
+      queryClient.invalidateQueries({ queryKey: ['/api/ops/media'] });
+    },
+    onError: (e: any) => toast({ title: 'Media registration failed', description: e.message, variant: 'destructive' }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Register Media</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Bot</Label>
+              <Select value={botId} onValueChange={setBotId}>
+                <SelectTrigger><SelectValue placeholder="Select bot" /></SelectTrigger>
+                <SelectContent>
+                  {bots?.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>File type</Label>
+              <Select value={fileType} onValueChange={setFileType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MESSAGE_TYPES.filter((t) => t !== 'text').map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>File ID</Label>
+              <Input placeholder="Telegram file_id" value={fileId} onChange={(e) => setFileId(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Unique ID</Label>
+              <Input placeholder="file_unique_id (optional)" value={fileUniqueId} onChange={(e) => setFileUniqueId(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>File name</Label>
+              <Input placeholder="file name (optional)" value={fileName} onChange={(e) => setFileName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Mime type</Label>
+              <Input placeholder="image/jpeg" value={mimeType} onChange={(e) => setMimeType(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>File size</Label>
+              <Input placeholder="Bytes" value={fileSize} onChange={(e) => setFileSize(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input placeholder="Optional title" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
+          </div>
+          <Button onClick={() => registerMutation.mutate()} disabled={!botId || !fileId || registerMutation.isPending}>
+            {registerMutation.isPending ? 'Registering…' : 'Register media'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="space-y-1">
+              <CardTitle className="text-base">Media assets</CardTitle>
+              <p className="text-sm text-muted-foreground">Use registered file IDs in the composer.</p>
+            </div>
+            <Input placeholder="Search by title, name, or file_id" value={search} onChange={(e) => setSearch(e.target.value)} className="w-64" />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  {['Type', 'Title', 'File ID', 'Bot', 'Created', 'Action'].map((h) => (
+                    <th key={h} className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    {Array.from({ length: 6 }).map((_, j) => <td key={j} className="px-4 py-2"><Skeleton className="h-4 w-full" /></td>)}
+                  </tr>
+                )) : data?.data.map((asset) => (
+                  <tr key={asset.id} className={`border-b border-border/50 hover:bg-muted/20 ${selectedMedia?.id === asset.id ? 'bg-muted/30' : ''}`}>
+                    <td className="px-4 py-2 text-xs capitalize">{asset.fileType}</td>
+                    <td className="px-4 py-2 text-xs max-w-[160px] truncate">{asset.title ?? asset.fileName ?? '-'}</td>
+                    <td className="px-4 py-2 text-xs font-mono truncate max-w-[220px]">{asset.fileId}</td>
+                    <td className="px-4 py-2 text-xs">{bots?.find((b) => b.id === asset.botId)?.name || asset.botId.slice(0, 8)}</td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground">{format(new Date(asset.createdAt), 'MM-dd HH:mm')}</td>
+                    <td className="px-4 py-2">
+                      <Button size="sm" variant="outline" onClick={() => onSelect(asset)}>Use in composer</Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data?.data?.length === 0 && !isLoading && (
+            <div className="py-12 text-center text-sm text-muted-foreground">No media assets registered yet.</div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function BroadcastsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; queryClient: any }) {
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState('');
@@ -273,6 +511,8 @@ function BroadcastsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any;
   const [text, setText] = useState('');
   const [caption, setCaption] = useState('');
   const [mediaFileId, setMediaFileId] = useState('');
+  const [preview, setPreview] = useState<BroadcastPreviewResult | null>(null);
+  const [confirmPreview, setConfirmPreview] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['/api/ops/broadcasts'],
@@ -280,8 +520,24 @@ function BroadcastsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any;
     refetchInterval: 10_000,
   });
 
+  const previewMutation = useMutation({
+    mutationFn: () => api.ops.previewBroadcastTargets({ botId: botId || undefined }),
+    onSuccess: (data) => {
+      setPreview(data);
+      setConfirmPreview(false);
+    },
+    onError: (e: any) => {
+      toast({ title: 'Preview failed', description: e.message, variant: 'destructive' });
+      setPreview(null);
+      setConfirmPreview(false);
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: () => {
+      if (!preview) {
+        throw new Error('Preview targets before creating the broadcast.');
+      }
       const payload: BroadcastPayload = {
         title,
         messageType: msgType,
@@ -297,6 +553,8 @@ function BroadcastsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any;
       toast({ title: 'Broadcast created' });
       setShowCreate(false);
       setTitle(''); setText(''); setCaption(''); setMediaFileId('');
+      setPreview(null);
+      setConfirmPreview(false);
       queryClient.invalidateQueries({ queryKey: ['/api/ops/broadcasts'] });
     },
     onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
@@ -368,8 +626,50 @@ function BroadcastsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any;
                 </div>
               </>
             )}
+            <div className="space-y-3">
+              <Button size="sm" variant="outline" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending || !title}>
+                {previewMutation.isPending ? 'Previewing…' : 'Preview targets'}
+              </Button>
+              {preview && (
+                <Card className="border border-border bg-slate-50">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Broadcast preview</p>
+                        <p className="text-xs text-muted-foreground">Only known reachable chats are counted. Blocked or no-send chats are excluded.</p>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{preview.totalTargets} targets</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded border border-border p-3">
+                        <div className="text-muted-foreground">Excluded blocked</div>
+                        <div className="font-semibold">{preview.excludedBlocked}</div>
+                      </div>
+                      <div className="rounded border border-border p-3">
+                        <div className="text-muted-foreground">Excluded no-send</div>
+                        <div className="font-semibold">{preview.excludedCannotSend}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-xs text-muted-foreground">Sample targets</div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {preview.sample.slice(0, 3).map((chat) => (
+                          <div key={chat.id} className="rounded border border-border p-2 bg-white text-xs">
+                            {chat.title ?? chat.username ?? `#${chat.chatId}`} – {chat.chatType}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input id="confirmPreview" type="checkbox" checked={confirmPreview} onChange={(e) => setConfirmPreview(e.target.checked)} className="h-4 w-4 rounded border" />
+                      <label htmlFor="confirmPreview" className="text-sm text-muted-foreground">I understand broadcast sends only to known reachable chats. Blocked/unreachable chats are skipped.</label>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
             <div className="flex gap-2">
-              <Button onClick={() => createMutation.mutate()} disabled={!title || createMutation.isPending}>
+              <Button onClick={() => createMutation.mutate()} disabled={!title || createMutation.isPending || !preview || !confirmPreview}>
                 {createMutation.isPending ? 'Creating...' : 'Create Broadcast'}
               </Button>
               <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
@@ -438,11 +738,15 @@ function GroupsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; que
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [messageId, setMessageId] = useState('');
+  const [confirmDanger, setConfirmDanger] = useState(false);
+  const [reason, setReason] = useState('');
   const [result, setResult] = useState<any>(null);
+
+  const dangerousActions = new Set(['banChatMember', 'restrictChatMember', 'promoteChatMember', 'deleteMessage', 'setChatTitle', 'setChatDescription', 'createChatInviteLink']);
 
   const mutation = useMutation({
     mutationFn: () => {
-      const payload: AdminActionPayload = { botId, chatId, action, payload: {} };
+      const payload: AdminActionPayload = { botId, chatId, action, payload: {}, confirm: undefined, reason: undefined };
       if (['banChatMember', 'unbanChatMember', 'restrictChatMember', 'promoteChatMember'].includes(action) && userId) {
         payload.payload = { userId: parseInt(userId) };
       }
@@ -452,6 +756,10 @@ function GroupsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; que
         payload.payload = { messageId: parseInt(messageId) };
       }
       if (action === 'createChatInviteLink') payload.payload = {};
+      if (dangerousActions.has(action)) {
+        payload.confirm = confirmDanger;
+        payload.reason = reason;
+      }
       return api.ops.adminAction(payload);
     },
     onSuccess: (data) => {
@@ -513,7 +821,25 @@ function GroupsTab({ bots, toast, queryClient }: { bots?: Bot[]; toast: any; que
             </div>
           )}
 
-          <Button onClick={() => mutation.mutate()} disabled={!botId || !chatId || mutation.isPending} className="w-full">
+          {dangerousActions.has(action) && (
+            <div className="space-y-3 rounded border border-destructive/30 bg-destructive/5 p-3">
+              <div className="flex items-center gap-2">
+                <input id="confirmDanger" type="checkbox" checked={confirmDanger} onChange={(e) => setConfirmDanger(e.target.checked)} className="h-4 w-4 rounded border" />
+                <label htmlFor="confirmDanger" className="text-sm font-medium text-destructive">Confirm this dangerous action</label>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reason</Label>
+                <Textarea
+                  placeholder="Explain why this action is needed"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="min-h-[100px]"
+                />
+              </div>
+            </div>
+          )}
+
+          <Button onClick={() => mutation.mutate()} disabled={!botId || !chatId || mutation.isPending || (dangerousActions.has(action) && (!confirmDanger || reason.trim().length < 8))} className="w-full">
             {mutation.isPending ? 'Executing...' : `Execute ${action}`}
           </Button>
 

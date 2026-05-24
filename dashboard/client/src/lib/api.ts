@@ -90,12 +90,49 @@ export interface KnownChat {
   firstName: string | null;
   lastName: string | null;
   lastMessageAt: number | null;
+  lastMessageId?: number | null;
   lastUpdateId: number | null;
   canSend: boolean;
   isBlocked: boolean;
   tags: string | null;
+  permissionsJson?: string | null;
+  permissionsCheckedAt?: number | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface PermissionScanResult {
+  isAdmin: boolean;
+  adminStatus: string;
+  canSendMessages: boolean;
+  canSendMedia: boolean;
+  canDeleteMessages: boolean;
+  canPinMessages: boolean;
+  canInviteUsers: boolean;
+  canRestrictMembers: boolean;
+  canPromoteMembers: boolean;
+  canChangeInfo: boolean;
+  admins: Array<{ userId: number; status: string; username: string | null }>;
+}
+
+export interface MediaAsset {
+  id: number;
+  botId: string;
+  fileType: string;
+  fileId: string;
+  fileUniqueId: string;
+  fileName: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+  title: string | null;
+  createdAt: number;
+}
+
+export interface BroadcastPreviewResult {
+  totalTargets: number;
+  sample: KnownChat[];
+  excludedBlocked: number;
+  excludedCannotSend: number;
 }
 
 export interface OutboundMessage {
@@ -183,11 +220,24 @@ export interface BroadcastPayload {
   filtersJson?: string;
 }
 
+export interface RegisterMediaDto {
+  botId: string;
+  fileType: string;
+  fileId: string;
+  fileUniqueId?: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+  title?: string;
+}
+
 export interface AdminActionPayload {
   botId: string;
   chatId: string;
   action: string;
   payload?: Record<string, any>;
+  confirm?: boolean;
+  reason?: string;
 }
 
 export interface HourlyStat {
@@ -266,10 +316,21 @@ export const api = {
     },
     getChat: (chatId: number) => apiFetch<KnownChat>(`/api/ops/chats/${chatId}`),
     refreshChat: (chatId: number) => apiFetch<KnownChat>(`/api/ops/chats/${chatId}/refresh`, { method: 'POST' }),
+    scanPermissions: (chatId: number) => apiFetch<PermissionScanResult>(`/api/ops/chats/${chatId}/scan-permissions`, { method: 'POST' }),
     sendMessage: (payload: SendMessagePayload) =>
       apiFetch<any>('/api/ops/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
     replyMessage: (payload: SendMessagePayload) =>
       apiFetch<any>('/api/ops/messages/reply', { method: 'POST', body: JSON.stringify(payload) }),
+    registerMedia: (payload: RegisterMediaDto) =>
+      apiFetch<MediaAsset>('/api/ops/media/register', { method: 'POST', body: JSON.stringify(payload) }),
+    media: (params?: Record<string, any>) => {
+      const qs = new URLSearchParams(
+        Object.entries(params || {}).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])
+      ).toString();
+      return apiFetch<{ data: MediaAsset[]; total: number }>(`/api/ops/media?${qs}`);
+    },
+    previewBroadcastTargets: (payload: Record<string, any>) =>
+      apiFetch<BroadcastPreviewResult>('/api/ops/broadcasts/preview-targets', { method: 'POST', body: JSON.stringify(payload) }),
     createBroadcast: (payload: BroadcastPayload) =>
       apiFetch<BroadcastJob>('/api/ops/broadcasts', { method: 'POST', body: JSON.stringify(payload) }),
     startBroadcast: (id: number) =>

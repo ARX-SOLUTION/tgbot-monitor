@@ -1,12 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { and, count, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { Update } from 'telegraf/types';
 import { DatabaseService } from '../database/database.service';
 import {
-  updateLogs, errorLogs, users, botUserActivity, hourlyStats,
-  knownChats, mediaAssets,
-  UpdateLog, ErrorLog, InsertKnownChat, InsertMediaAsset
+    botUserActivity,
+    ErrorLog,
+    errorLogs,
+    hourlyStats,
+    InsertKnownChat, InsertMediaAsset,
+    knownChats, mediaAssets,
+    UpdateLog,
+    updateLogs,
+    users
 } from '../database/schema';
-import { eq, desc, and, gte, lte, like, sql, count } from 'drizzle-orm';
-import { Update } from 'telegraf/types';
 
 export interface LogsFilter {
   botId?: string;
@@ -42,8 +48,9 @@ export class LogsService {
     const inlineQuery = (update as any).inline_query?.query ?? null;
 
    // Upsert known chat if chat info is present
+   const messageId = this.extractMessageId(update);
    if (chat && chat.id) {
-     await this.upsertKnownChat(botId, chat, now, updateId);
+     await this.upsertKnownChat(botId, chat, now, updateId, messageId);
    }
 
    // Upsert media assets if present
@@ -248,8 +255,20 @@ export class LogsService {
     );
   }
 
+  private extractMessageId(update: Update): number | null {
+    const u = update as any;
+    return (
+      u.message?.message_id ??
+      u.edited_message?.message_id ??
+      u.channel_post?.message_id ??
+      u.edited_channel_post?.message_id ??
+      u.callback_query?.message?.message_id ??
+      null
+    );
+  }
+
   // Upsert known chat info
-  private async upsertKnownChat(botId: string, chat: any, now: number, updateId: number): Promise<void> {
+  private async upsertKnownChat(botId: string, chat: any, now: number, updateId: number, messageId?: number): Promise<void> {
     const insert: InsertKnownChat = {
       botId,
       chatId: chat.id,
@@ -259,27 +278,35 @@ export class LogsService {
       firstName: chat.first_name ?? null,
       lastName: chat.last_name ?? null,
       lastMessageAt: now,
+      lastMessageId: messageId ?? null,
       lastUpdateId: updateId,
       canSend: true,
       isBlocked: false,
       tags: null,
+      permissionsJson: null,
+      permissionsCheckedAt: null,
       createdAt: now,
       updatedAt: now,
     };
+    const updateValues: any = {
+      chatType: chat.type ?? 'private',
+      title: chat.title ?? null,
+      username: chat.username ?? null,
+      firstName: chat.first_name ?? null,
+      lastName: chat.last_name ?? null,
+      lastMessageAt: now,
+      lastUpdateId: updateId,
+      updatedAt: now,
+    };
+    if (messageId !== undefined) {
+      updateValues.lastMessageId = messageId;
+    }
+
     this.db.insert(knownChats)
       .values(insert)
       .onConflictDoUpdate({
         target: [knownChats.botId, knownChats.chatId],
-        set: {
-          chatType: chat.type ?? 'private',
-          title: chat.title ?? null,
-          username: chat.username ?? null,
-          firstName: chat.first_name ?? null,
-          lastName: chat.last_name ?? null,
-          lastMessageAt: now,
-          lastUpdateId: updateId,
-          updatedAt: now,
-        },
+        set: updateValues,
       })
       .run();
   }
